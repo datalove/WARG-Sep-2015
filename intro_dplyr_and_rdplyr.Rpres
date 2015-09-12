@@ -1,0 +1,696 @@
+```{r, echo = FALSE}
+library(knitr)
+library(plyr)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(magrittr)
+library(rdplyr)  # devtools::install_github("datalove/rdplyr")
+
+gears <- mtcars$gear 
+mtcars <- mtcars[,1:6]
+mtcars$gear <- gears
+
+```
+
+Welcome to dplyr
+========================================================
+author: Tommy M O'Dell (tommy.odell@gmail.com)
+date: September 10th, 2015
+transition: rotate
+transition-speed: fast
+width: 1440
+height: 900
+ 
+dplyr?
+========================================================
+Lead Author: Hadley Wickham 
+![alt text](hadley.jpg)
+***
+Friction-less manipulation of data frames in R
+
+Package goals:
+ 
+1. simple interface
+2. good performance
+3. same interface for many 'backends'
+
+<!-- Notes:
+- the ordering of the points is relevant (hadley will trade off performance for a clean interface)
+- familiar with plyr? Think of dplyr as plyr specialised for data frames
+-->
+ 
+Data manipulation in base R
+========================================================
+type: section
+ 
+Filter the rows of a data frame
+========================================================
+ 
+Keep rows where mpg > 30 and cyl >= 4
+```{r}
+mtcars[mtcars$mpg > 30 & mtcars$cyl >= 4,]
+```
+ 
+Add or modify columns
+========================================================
+ 
+Create a new column for displacement per cylinder
+```{r}
+mtcars$disp_cyl <- mtcars$disp / mtcars$cyl
+head(mtcars)
+```
+ 
+Sort a data frame by its values
+========================================================
+ 
+```{r}
+mt <- mtcars[order(mtcars$mpg, mtcars$cyl),]
+head(mt)
+```
+ 
+Select columns from a data frame
+========================================================
+ 
+Method 1 - Numerical indices
+```{r}
+head(mtcars[,1:4])
+```
+Select columns from a data frame
+========================================================
+title:false
+ 
+Method 2 - Named indices
+```{r}
+head(mtcars[,c('mpg','cyl','disp','gear')])
+```
+Summarise (aggregate) a data frame
+========================================================
+```{r}
+aggregate(mpg ~ cyl + gear, data = mtcars, mean)
+``` 
+What about CRAN?
+========================================================
+type: section
+
+========================================================
+Using `ddply` from **plyr** to get the mean mpg per cylinder and gear
+```{r}
+ddply(
+  mtcars,         # data frame
+  .(cyl, gear),   # grouping columns 
+  summarise,      # type of
+  mpg = mean(mpg) # aggregations
+)
+``` 
+
+========================================================
+Using `data.table` to get the mean mpg per cylinder and gear
+```{r}
+dtcars <- as.data.table(mtcars)
+dtcars[, mean(mpg), by = list(cyl,gear)]
+``` 
+
+If it aint broke?
+========================================================
+type: section
+Are any of these both **readable** and **fast**?
+ 
+The dplyr promise
+========================================================
+
+99% of data manipulation can be described 6 key operations ('verbs') 
+
+1. **filter**: filter the rows of a data frame
+2. **mutate**: modify or create new columns
+3. **group by**: set grouping variables
+4. **summarise**: aggregate a data frame
+5. **arrange**: sort columns of a data frame
+6. **select**: select a set of columns
+
+```{r, echo = FALSE}
+mtcars <- tbl_df(mtcars)
+```
+
+filter
+========================================================
+```{r}
+filter(mtcars, mpg > 30, cyl >= 4)
+```
+
+mutate 
+========================================================
+(modify or create columns)
+Same as previous
+```{r}
+mutate(mtcars, disp_cyl = disp/cyl)
+```
+
+========================================================
+Multiple columns in one
+```{r}
+mutate(
+  mtcars, 
+  disp_cyl = disp/cyl,
+  kw = hp/0.746
+)
+```
+
+========================================================
+Can even refer to newly created columns immediately...
+```{r}
+mutate(
+  mtcars, 
+  disp_cyl = disp/cyl,
+  k_watt = hp/0.746,
+  watts  = k_watt*1000
+)
+```
+
+Group by and Summarise
+========================================================
+```{r}
+mtcars <- group_by(mtcars, cyl, gear)
+mtcars
+```
+
+========================================================
+```{r}
+summarise(mtcars, mpg = mean(mpg)) # uses the grouping set previously
+```
+
+========================================================
+Multiple aggregations in one
+```{r}
+summarise(
+  mtcars, 
+  mpg = mean(mpg), 
+  hp = mean(hp)
+)
+```
+arrange 
+========================================================
+```{r}
+arrange(mtcars, cyl, disp)
+```
+
+========================================================
+```{r}
+arrange(mtcars, cyl, desc(disp)) # desending!
+```
+
+select
+========================================================
+```{r, echo = FALSE}
+mtcars <- ungroup(mtcars)
+```
+```{r}
+select(mtcars, 1:4)
+```
+
+========================================================
+```{r}
+select(mtcars, mpg, cyl, disp, gear)
+```
+
+========================================================
+```{r}
+select(mtcars, mpg:hp)
+```
+
+========================================================
+```{r}
+select(mtcars, contains('a'))
+```
+
+========================================================
+```{r}
+select(mtcars, starts_with('d'))
+```
+
+========================================================
+```{r}
+select(mtcars, -starts_with('d'))
+```
+
+Putting it all together
+========================================================
+type: section
+
+========================================================
+Let's say during our exploratory analysis we want to create new column, fitler on that new column, 
+then get the mean of that new column for each cylinder and gear
+
+```{r}
+mt <- mutate(mtcars, disp_cyl = disp/cyl)
+mt <- filter(mt, disp_cyl > 30, mpg < 25)
+mt <- group_by(mt, cyl, gear)
+```
+
+```{r}
+summarise(mt, avg_d_cyl = mean(disp_cyl), min_d_cyl = min(disp_cyl))
+
+```
+
+
+
+========================================================
+
+That's a lot of repetition, and we now have an extra variable **mt** sitting around taking up space...
+
+If we just want to print the answer without intermediary variables...
+```{r}
+summarise(group_by(filter(mutate(mtcars, disp_cyl = disp/cyl), disp_cyl > 30,  mpg > 23), cyl, gear), avg_d_cyl = mean(disp_cyl), min_d_cyl = min(disp_cyl))
+```
+(Say what???!)
+
+========================================================
+We can make that a bit easier to read... but not great
+```{r}
+summarise(
+  group_by(
+    filter(
+      mutate(mtcars, disp_cyl = disp/cyl),
+      disp_cyl > 30, 
+      mpg > 23
+    ),
+    cyl,
+    gear
+  ),
+  avg_d_cyl = mean(disp_cyl),
+  min_d_cyl = min(disp_cyl)
+)
+```
+(Butt ugly!)
+
+Ceci n'est pas une pipe
+=======================================================
+type: section
+
+
+=======================================================
+Our last example was barely readable. What can we do? **Pipes** to the rescue!
+
+  * Introduced through the **magrittr** package and **dplyr** package around the same time
+  * Inspired by unix pipes, and F-sharp pipes
+
+A pipe ('`%>%`') takes the left-hand side and passes it to the right-hand side as the first argument.
+
+=======================================================
+Without pipes...
+```{r}
+summarise(
+  group_by(
+    filter(
+      mutate(
+        mtcars, 
+        disp_cyl = disp/cyl
+      ),
+      disp_cyl > 30, 
+      mpg > 23
+    ),
+    cyl,
+    gear
+  ),
+  avg_d_cyl = mean(disp_cyl),
+  min_d_cyl = min(disp_cyl)
+)
+```
+***
+With pipes!
+```{r}
+mtcars %>% 
+  mutate(disp_cyl = disp/cyl) %>% 
+  filter(disp_cyl>30, mpg>23) %>% 
+  group_by(cyl, gear) %>% 
+  summarise(
+    avg_d_cyl = mean(disp_cyl),
+    min_d_cyl = min(disp_cyl)
+  )
+```
+
+That's not where it ends...
+==========================
+type: section
+
+
+==========================
+Let's load up a bigger dat set
+```{r}
+library(hflights) # to load the flights data set
+tbl_df(hflights)
+```
+
+
+==========================
+
+```{r}
+hflights %>% 
+  mutate(ArrEarly = ArrDelay < 0) %>% 
+  filter(DepDelay < 2*60, Distance > 200) %>% 
+  group_by(UniqueCarrier, ArrEarly) %>% 
+  summarise(MeanArrDelay = mean(ArrDelay, na.rm = TRUE))
+
+```
+
+==========================
+
+```{r}
+step1 <- . %>%  
+  mutate(ArrEarly = ArrDelay < 0) %>% 
+  filter(DepDelay < 2*60, Distance > 200) 
+
+step2 <- . %>% 
+  group_by(UniqueCarrier, ArrEarly) %>% 
+  summarise(MeanArrDelay = mean(ArrDelay, na.rm = TRUE))
+
+hflights %>% step1 %>% step2
+
+```
+
+Oops.. why the NAs?
+===========================
+
+```{r}
+na_filter <- . %>% filter(!is.na(ArrDelay), !is.na(DepDelay))
+
+hflights %>% na_filter %>% step1 %>% step2
+
+```
+
+Can we feed this to ggplot?
+===========================
+
+```{r}
+hflights %>% 
+  na_filter %>%  # remove NAs step
+  step1 %>%      # mutate and filter step  
+  step2 %>%      # aggregate step
+  ggplot(aes(x= UniqueCarrier, y = MeanArrDelay)) + 
+    geom_bar(stat = "identity")
+
+```
+
+
+What about pivoting with tidyr?
+===========================
+
+```{r}
+hflights %>% 
+  na_filter %>%  # remove NAs step
+  step1 %>%      # mutate and filter step  
+  step2 %>%      # aggregate step
+  spread(ArrEarly, MeanArrDelay)
+
+```
+
+... let's write this to disk
+===========================
+
+```{r, eval = FALSE}
+hflights %>% 
+  na_filter %>%  
+  step1 %>%      
+  step2 %>%      
+  spread(ArrEarly, MeanArrDelay) %>% 
+  write.csv("my_flight_data.csv")    # write to disk 
+
+```
+
+
+Magrittr 'tee' operator ('%T>%')
+===========================
+
+In the statement below, the tee operator finishes the transformation
+after '`spread`', but simultaneously pipes the output to the '`write.csv`' function.
+
+```{r, eval = FALSE}
+result <-
+  hflights %>% na_filter %>% step1 %>% step2 %>%      
+  spread(ArrEarly, MeanArrDelay) %T>% 
+  write.csv("my_flight_data.csv")    # write to disk, and assign!
+
+```
+
+Also handy for printing while assigning
+
+```{r}
+result <-
+  hflights %>% na_filter %>% step1 %>% step2 %>%      
+  spread(ArrEarly, MeanArrDelay) %T>% 
+  print   # print result, and assign too!
+
+```
+
+So dplyr looks great... is it fast? YES
+===================================
+
+1. dplyr is written in c++ for speed
+2. it's *much* faster than base R
+3. it's not quite as fast as `data.table` 
+  * see this question on [stackoverflow](https://stackoverflow.com/questions/21435339/data-table-vs-dplyr-can-one-do-something-well-the-other-cant-or-does-poorly)
+  * and detailed benchmarks [here](https://github.com/Rdatatable/data.table/wiki/Benchmarks-%3A-Grouping)
+
+
+
+**BUT** `dplyr` is fast enough in most situations.
+
+Hadley has purposely traded some speed for syntax, since the bottleneck is usually in your head. 
+
+What is this black magic from dplyr?
+==========================
+type: section
+
+Advanced R by Hadley Wickham
+======================
+![alt text](advr.jpg)
+***
+Available for free from:
+
+http://adv-r.had.co.nz/
+
+Amazingly clear and well written.
+Easily worth the purchase of the paper copy.
+
+A need...
+==========================
+
+* dealing with an old version of R (2.12) that didn't support `dplyr`
+* just wanted to learn more about `dplyr`
+
+'rdplyr' is born
+==========================
+type: section
+
+
+==========================
+I set about learnign the tricks behind the `dplyr` interface...
+* surprisingly simple
+* surprisingly brief
+
+
+```{r, eval = FALSE}
+devtools::install_github('datalove/rdplyr')
+library(rdplyr)  # note: make sure you don't load dplyr itself afterward
+```
+
+filter
+==========================
+We saw earlier that basic filter in R looks like this
+
+```{r}
+mtcars[mtcars$mpg > 33,]
+```
+Let's make it a function (clearly this doesn't work)
+```{r, echo = FALSE}
+data(mtcars)
+```
+
+```{r}
+filter <- function(.data, expr) { .data[expr,] }
+filter(mtcars, mpg > 33) # error!
+
+```
+
+filter - what's going on?
+==========================
+```{r}
+filter <- function(.data, expr) { print(expr) }
+filter(mtcars, mpg > 33)        # computer says 'no'
+filter(mrcars, mtcars$mpg > 33) # computer says 'no' 
+
+```
+
+
+==========================
+The `mpg > 33` part is called an 'expression' in R. 
+
+Expressions are evaluated as soon as they're encountered, so we need a special
+function that doesn't evaluate an expression. 
+
+**substitute()** takes an expression and returns an **unevaluated call**
+
+```{r}
+filter <- function(.data, expr) { print(substitute(expr)) }
+filter(mtcars, mpg > 33) 
+
+```
+
+How do we evaluate an unevaluated call? The **eval()** function!
+```{r}
+filter <- function(.data,expr){.data[eval(substitute(expr), envir = .data),]}
+filter(mtcars, mpg > 33)
+```
+
+mutate
+==============================
+We'll take what we learned previously and apply it to `mutate`.
+
+But mutate takes a **named expression** like `kw = hp/0.746` , whereas filter uses unnamed expressions like `mpg > 33`.
+
+This causes some trouble:
+
+```{r, eval = FALSE}
+mutate <- function(.data, expr) { 1 }
+mutate(mtcars, kw = hp/0.746)  
+```
+```{r, echo = FALSE}
+mutate <- function(.data, expr) { 1 }
+```
+```
+Error in mutate(mtcars, kw = hp/0.746) : unused argument (kw = hp/0.746)
+```
+
+
+
+To handle named arguments...use 'dots'
+==============================
+
+```{r}
+mutate <- function(.data, ...) {
+  args <- eval(substitute(alist(...))) # get list of named arguments
+  print(1)
+}
+mutate(mtcars, kw = hp/0.746)
+```
+Okay no more errors, but doesn't do anything yet
+
+
+=============================================
+
+Version two...
+```{r}
+mutate <- function(.data, ...) {
+  args <- eval(substitute(alist(...))) # get list of named arguments in '...'
+  
+  nm   <- names(args)[[1]]
+  expr <- args[[1]]
+
+  .data[,nm] <- eval(expr, envir = .data) # create column from expression
+  .data
+}
+```
+Does it work? Yes!
+```{r}
+mutate(mtcars, kw = hp/0.746) %>% head()
+```
+
+
+=============================================
+
+The `eval(substitute(alist(...)))` part of the code above actually sets us up
+to accept **multiple** named expressions like below:
+
+```{r, eval = FALSE}
+mutate(mtcars, kw = hp/0.746, good_mpg = mpg > 30)
+```
+
+You can explore that on your own.
+
+```{r}
+rdplyr::mutate
+```
+
+Pipe ('%>%')
+=============================================
+
+In R, custom operators can be created like so:
+
+```{r}
+`%s%` <- function(a,b) paste0(a,b)
+```
+```{r}
+'one' %s% 'two'
+```
+
+========================
+
+So can we create a basic version of the pipe by doing this? YES!
+```{r}
+`%>%` <- function(x,f) f(x)
+
+rnorm(100) %>% hist 
+```
+***
+But it doesn't work for additional arguments
+```{r, eval = FALSE}
+rnorm(100) %>% 
+  hist(main = "testing") 
+```
+```
+Error in hist.default(main = "testing") : 
+  argument "x" is missing, with no default
+```
+
+
+========================
+
+To make it work, we'll have to actually reorder the arguments in the left and right sides of the pipe.
+
+**match.call()** to the rescue!
+
+We won't cover it now but the code is fairly simple
+
+```{r}
+rdplyr:::`%>%`
+```
+
+group_by
+========================
+```{r}
+rdplyr::group_by
+
+```
+
+summarise
+========================
+```{r}
+rdplyr::summarise
+
+```
+
+Further info...
+==========================
+
+Again, if you're interested, you can install the package:
+
+```{r, eval = FALSE}
+devtools::install_github('datalove/rdplyr')
+library(rdplyr)  # note: make sure you don't load dplyr itself afterward
+```
+
+Or view the code:
+
+https://github.com/datalove/rdplyr/blob/master/R/rdplyr.R
+
+Or check out my half-baked blog posts on the subject here:
+
+http://datalove.org/r/dplyr/2015/01/25/dplyr-100-lines-01-intro/
+http://datalove.org/r/dplyr/2015/01/26/dplyr-100-lines-02-filter/
+http://datalove.org/r/dplyr/2015/01/27/dplyr-100-lines-03-mutate/
+
+
+Questions?
+========================================================
+type: prompt
